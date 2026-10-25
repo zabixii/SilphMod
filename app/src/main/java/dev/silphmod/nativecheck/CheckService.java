@@ -18,6 +18,7 @@ public final class CheckService extends Service {
     private long lastNotification;
     private CheckLog log;
     private int mode=1;
+    private DiscordReporter discord;
     @Override public void onCreate(){super.onCreate();NotificationManager manager=getSystemService(NotificationManager.class);manager.createNotificationChannel(new NotificationChannel("native-check","SilphMod service",NotificationManager.IMPORTANCE_LOW));}
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         String action=intent==null?STOP:intent.getAction();
@@ -28,17 +29,25 @@ public final class CheckService extends Service {
         try{log=new CheckLog(this);}catch(Exception error){publish(false,"Cannot save session log",error.toString(),true);stopSelf();return START_NOT_STICKY;}
         wake=getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,"SilphMod:service");wake.setReferenceCounted(false);wake.acquire(10*60_000L);main.postDelayed(renewWake,5*60_000L);
         mode=intent.getIntExtra("mode",1);if(mode!=1&&mode!=2)mode=1;
+        NativeSettings settings=new NativeSettings(this);
+        if(settings.prefs.getBoolean("discordEnabled",false)){
+            String webhookUrl=settings.prefs.getString("discordWebhook","");
+            if(!webhookUrl.isEmpty()){discord=new DiscordReporter(webhookUrl,mode,settings,log);discord.start();}
+        }
         runner=new NativeCheckRunner(this,mode,log,(status,details)->publish(true,status,details,false));
         NativeCheckRunner active=runner;
         new Thread(()->{
             NativeCheckRunner.Result result=active.run();
             log.write("finished","reason="+result.reason+" cleanupConfirmed="+result.cleanup);
+            if(discord!=null)discord.stop(result.reason,result.cleanup);
             publish(false,result.reason, "Cleanup: "+(result.cleanup?"confirmed":"not confirmed")+"\n"+active.details(),true);
-            main.post(()->{runner=null;if(wake!=null&&wake.isHeld())wake.release();stopForeground(STOP_FOREGROUND_DETACH);stopSelf();});
+            main.post(()->{runner=null;discord=null;if(wake!=null&&wake.isHeld())wake.release();stopForeground(STOP_FOREGROUND_DETACH);stopSelf();});
         },"silph-service").start();return START_NOT_STICKY;
     }
     private void publish(boolean running,String status,String details,boolean force){
-        view=new View(running,status,details);long now=SystemClock.elapsedRealtime();if(!force&&now-lastNotification<1000)return;lastNotification=now;
+        view=new View(running,status,details);
+        if(discord!=null)discord.update(status,details);
+        long now=SystemClock.elapsedRealtime();if(!force&&now-lastNotification<1000)return;lastNotification=now;
         main.post(()->getSystemService(NotificationManager.class).notify(1,notification()));
     }
     private Notification notification(){
@@ -49,6 +58,6 @@ public final class CheckService extends Service {
         return builder.build();
     }
     private final Runnable renewWake=new Runnable(){public void run(){if(runner!=null&&wake!=null){wake.acquire(10*60_000L);main.postDelayed(this,5*60_000L);}}};
-    @Override public void onDestroy(){main.removeCallbacks(renewWake);NativeCheckRunner active=runner;if(active!=null)active.stop();if(wake!=null&&wake.isHeld())wake.release();super.onDestroy();}
+    @Override public void onDestroy(){main.removeCallbacks(renewWake);NativeCheckRunner active=runner;if(active!=null)active.stop();DiscordReporter d=discord;if(d!=null)d.stop("Service destroyed",false);if(wake!=null&&wake.isHeld())wake.release();super.onDestroy();}
     @Override public IBinder onBind(Intent intent){return null;}
 }

@@ -92,6 +92,12 @@ public final class MainActivity extends Activity {
         toggle(game,"Auto-open gifts","autoOpenGifts",false);
         toggle(game,"Auto-send gifts","autoSendGifts",false);
         toggle(game,"Hide trainer name","hideTrainerName",true);
+        LinearLayout discordCard=ui.card("Discord integration");
+        CompoundButton discordToggle=toggle(discordCard,"Discord status updates","discordEnabled",false);
+        LinearLayout discordOptions=ui.column();discordCard.addView(discordOptions);
+        setting(discordOptions,"Webhook URL",webhookSummary()).setOnClickListener(v->discordDialog());
+        discordToggle.setOnCheckedChangeListener((v,on)->{settings.prefs.edit().putBoolean("discordEnabled",on).apply();discordOptions.setVisibility(on?View.VISIBLE:View.GONE);});
+        discordOptions.setVisibility(discordToggle.isChecked()?View.VISIBLE:View.GONE);
         Button engine=ui.button(ui.page,"Engine settings",false);edits.add(engine);engine.setOnClickListener(v->engineDialog());
         start=ui.button(ui.controls,"Start service",true);start.setOnClickListener(v->{if(CheckService.view.running){startService(new Intent(this,CheckService.class).setAction(CheckService.STOP));return;}
             try{inputError="";settings.config(mode,false);getPreferences(0).edit().putInt("mode",mode).apply();startForegroundService(new Intent(this,CheckService.class).setAction(CheckService.START).putExtra("mode",mode));}
@@ -117,7 +123,28 @@ public final class MainActivity extends Activity {
     private Button setting(LinearLayout parent,String label,String value){Button b=ui.button(parent,label+"\n"+value,false);edits.add(b);return b;}
     private String speciesSummary(){int n=dev.rootcatch.automation.PokemonSelection.parse(settings.prefs.getString("species","")).size();return n==0?"All Pokémon":n+" selected";}
     private String itemSummary(){String text=settings.prefs.getString("limits","");return text.isBlank()?"Not configured":text.split(",").length+" item types";}
+    private String webhookSummary(){
+        String url=settings.prefs.getString("discordWebhook","").trim();
+        if(url.isEmpty())return "Not configured";
+        int slash=url.lastIndexOf('/');
+        return slash>0&&slash+6<url.length()?"…"+url.substring(slash):"Configured";
+    }
     private void export(){export.setEnabled(false);export.setText("Exporting…");new Thread(()->{String result;try{CheckLog.export(this);result="Saved to Downloads/SilphMod";}catch(Exception error){result=error.getMessage();}String message=result;runOnUiThread(()->{export.setEnabled(true);export.setText("Export logs");Toast.makeText(this,message==null?"Export failed":message,Toast.LENGTH_LONG).show();});},"silph-export").start();}
+    private void discordDialog(){
+        Dialog dialog=new Dialog(this,R.style.SettingsDialogTheme);LinearLayout page=ui.column();page.setPadding(ui.dp(22),ui.dp(20),ui.dp(22),ui.dp(20));page.setBackgroundColor(ModeUi.BG);
+        page.addView(ui.text("Discord Webhook",23,ModeUi.TEXT));
+        page.addView(ui.text("Enter your Discord channel webhook URL:",14,ModeUi.MUTED));
+        EditText edit=new EditText(this);edit.setSingleLine(false);edit.setMaxLines(3);edit.setTextColor(ModeUi.TEXT);
+        edit.setText(settings.prefs.getString("discordWebhook",""));edit.setContentDescription("Discord Webhook URL");edit.setHint("https://discord.com/api/webhooks/…");edit.setHintTextColor(ModeUi.MUTED);
+        page.addView(edit);
+        ui.button(page,"Save",true).setOnClickListener(v->{
+            String val=edit.getText().toString().trim();
+            settings.prefs.edit().putString("discordWebhook",val).apply();
+            dialog.dismiss();
+            show();
+        });
+        ui.button(page,"Cancel",false).setOnClickListener(v->dialog.dismiss());dialog.setContentView(page);dialog.show();if(dialog.getWindow()!=null)dialog.getWindow().setLayout(Math.min(getResources().getDisplayMetrics().widthPixels-ui.dp(32),ui.dp(420)),-2);
+    }
     private void engineDialog(){
         Dialog dialog=new Dialog(this,R.style.SettingsDialogTheme);LinearLayout page=ui.column();page.setPadding(ui.dp(22),ui.dp(20),ui.dp(22),ui.dp(20));page.setBackgroundColor(ModeUi.BG);
         page.addView(ui.text("Engine settings",23,ModeUi.TEXT));
